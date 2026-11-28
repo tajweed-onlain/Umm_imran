@@ -594,20 +594,16 @@ async function createRtcRoom() {
 
   loadPeerJS(function() {
     const code = 'umm-' + Math.floor(1000 + Math.random() * 9000);
-    peer = new Peer(code);
-    peer.on('open', function(id) {
-      document.getElementById('rtc-room-code').textContent = id;
-      document.getElementById('rtc-invite').style.display = 'flex';
+    peer = new Peer(code, {
+      config: {
+        iceServers: [
+          { urls: 'stun:://google.com' },
+          { urls: 'stun:://google.com' },
+          { urls: 'stun:stun.ekiga.net' }
+        ]
+      }
     });
-    peer.on('call', function(call) {
-      call.answer(localStream);
-      setupCallEvents(call);
-    });
-    peer.on('connection', function(conn) {
-      setupDataEvents(conn);
-    });
-  });
-}
+
 
 async function joinRtcRoom() {
   const targetId = document.getElementById('rtc-join-id').value.trim();
@@ -615,9 +611,16 @@ async function joinRtcRoom() {
   localStream = await getUserMediaSafe();
   document.getElementById('local-video').srcObject = localStream;
   document.getElementById('rtc-stage').style.display = 'block';
-
-  loadPeerJS(function() {
-    peer = new Peer();
+ loadPeerJS(function() {
+    peer = new Peer({
+      config: {
+        iceServers: [
+          { urls: 'stun:://google.com' },
+          { urls: 'stun:://google.com' },
+          { urls: 'stun:stun.ekiga.net' }
+        ]
+      }
+    });
     peer.on('open', function() {
       const call = peer.call(targetId, localStream);
       setupCallEvents(call);
