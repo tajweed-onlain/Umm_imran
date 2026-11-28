@@ -167,6 +167,7 @@ footer {
     <a href="#payment">Правила оплаты</a>
     <a href="#alphabet">Тренажер</a>
     <a href="#faq">Вопросы</a>
+    <a href="#classroom" style="color:var(--accent-l)">Онлайн-класс</a>
   </nav>
   <div class="header-controls">
     <button class="theme-btn" onclick="toggleDayNight()">🌓 День / Ночь</button>
@@ -224,6 +225,22 @@ footer {
   <div class="sec-sub">Помощь</div>
   <h2 class="sec-title">Частые вопросы</h2>
   <div class="faq-box" id="v-faq"><div class="faq-item"><button class="faq-q" onclick="this.parentElement.classList.toggle('open')"><span>Можно ли начать обучение совсем с нуля?</span><span style="color:var(--accent)">+</span></button><div class="faq-a">Да, большинство учениц приходят без знания букв. Мы начинаем с самых основ.</div></div><div class="faq-item"><button class="faq-q" onclick="this.parentElement.classList.toggle('open')"><span>Как проходят занятия?</span><span style="color:var(--accent)">+</span></button><div class="faq-a">Индивидуально онлайн (Telegram, WhatsApp или Zoom). Все учебные материалы предоставляются.</div></div></div>
+</section>
+<section class="section" id="classroom">
+  <div class="sec-sub">Видеосвязь</div>
+  <h2 class="sec-title">Онлайн-класс</h2>
+  <p class="sec-desc">Введите название комнаты (например: <b>umm-imran-1</b>), своё имя и нажмите «Войти в класс» для индивидуального или группового урока.</p>
+
+  <div class="booking" style="max-width:960px; margin:0 auto;">
+    <div style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:16px;">
+      <input type="text" id="room-name" value="umm-imran-class-1" placeholder="Название комнаты" style="flex:1; min-width:200px;">
+      <input type="text" id="room-user" placeholder="Ваше имя (например: Устаза или Амина)" style="flex:1; min-width:200px;">
+      <button class="btn-main" onclick="startClassRoom()">🎥 Войти в класс</button>
+      <button class="theme-btn" id="btn-leave-room" onclick="leaveClassRoom()" style="display:none; border-color:#e55; color:#e55;">Завершить урок</button>
+    </div>
+
+    <div id="jitsi-box" style="width:100%; height:560px; border-radius:var(--radius); overflow:hidden; border:1px solid var(--border); background:#000; display:none;"></div>
+  </div>
 </section>
 
 <section class="section" id="booking">
@@ -493,6 +510,59 @@ function renderSite() {
 function toggleDayNight() {
   config.theme = config.theme === 'dark' ? 'light' : 'dark';
   renderSite();
+}
+let jitsiApi = null;
+
+function startClassRoom() {
+  const roomInput = document.getElementById('room-name').value.trim() || 'umm-imran-class-1';
+  const userName = document.getElementById('room-user').value.trim() || 'Ученица';
+  const safeRoom = 'UmmImranQuran_' + roomInput.replace(/[^a-zA-Z0-9_-]/g, '');
+  const box = document.getElementById('jitsi-box');
+
+  box.style.display = 'block';
+  box.innerHTML = '';
+  document.getElementById('btn-leave-room').style.display = 'inline-block';
+
+  function initJitsi() {
+    jitsiApi = new JitsiMeetExternalAPI('meet.jit.si', {
+      roomName: safeRoom,
+      width: '100%',
+      height: 560,
+      parentNode: box,
+      lang: 'ru',
+      userInfo: { displayName: userName },
+      configOverwrite: {
+        startWithAudioMuted: false,
+        startWithVideoMuted: true,
+        prejoinPageEnabled: false
+      },
+      interfaceConfigOverwrite: {
+        SHOW_JITSI_WATERMARK: false,
+        TOOLBAR_BUTTONS: [
+          'microphone', 'camera', 'desktop', 'chat',
+          'raisehand', 'participants-pane', 'tileview', 'hangup'
+        ]
+      }
+    });
+  }
+
+  if (window.JitsiMeetExternalAPI) {
+    initJitsi();
+  } else {
+    const s = document.createElement('script');
+    s.src = 'https://jit.si';
+    s.onload = initJitsi;
+    document.head.appendChild(s);
+  }
+}
+
+function leaveClassRoom() {
+  if (jitsiApi) {
+    jitsiApi.dispose();
+    jitsiApi = null;
+  }
+  document.getElementById('jitsi-box').style.display = 'none';
+  document.getElementById('btn-leave-room').style.display = 'none';
 }
 
 function sendToTelegram() {
