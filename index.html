@@ -229,17 +229,47 @@ footer {
 <section class="section" id="classroom">
   <div class="sec-sub">Видеосвязь</div>
   <h2 class="sec-title">Онлайн-класс</h2>
-  <p class="sec-desc">Введите название комнаты (например: <b>umm-imran-1</b>), своё имя и нажмите «Войти в класс» для индивидуального или группового урока.</p>
+  <p class="sec-desc">Прямая видеосвязь, демонстрация экрана с Кораном и чат для индивидуальных занятий.</p>
 
   <div class="booking" style="max-width:960px; margin:0 auto;">
-    <div style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:16px;">
-      <input type="text" id="room-name" value="umm-imran-class-1" placeholder="Название комнаты" style="flex:1; min-width:200px;">
-      <input type="text" id="room-user" placeholder="Ваше имя (например: Устаза или Амина)" style="flex:1; min-width:200px;">
-      <button class="btn-main" onclick="startClassRoom()">🎥 Войти в класс</button>
-      <button class="theme-btn" id="btn-leave-room" onclick="leaveClassRoom()" style="display:none; border-color:#e55; color:#e55;">Завершить урок</button>
+    <div id="rtc-lobby" style="display:flex; gap:12px; flex-wrap:wrap; align-items:center;">
+      <button class="btn-main" onclick="createRtcRoom()">🎓 Создать урок (Учитель)</button>
+      <input type="text" id="rtc-join-id" placeholder="Код урока от учителя" style="flex:1; min-width:180px;">
+      <button class="header-btn" onclick="joinRtcRoom()">🎧 Подключиться (Ученица)</button>
     </div>
 
-    <div id="jitsi-box" style="width:100%; height:560px; border-radius:var(--radius); overflow:hidden; border:1px solid var(--border); background:#000; display:none;"></div>
+    <div id="rtc-invite" style="display:none; margin-top:14px; padding:12px; border:1px dashed var(--accent); border-radius:10px; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+      <span style="font-size:13px;">Код урока: <b id="rtc-room-code" style="color:var(--accent-l)"></b> <span id="rtc-status" style="color:var(--muted); margin-left:8px;">(ожидание ученицы...)</span></span>
+      <button class="theme-btn" onclick="copyRtcLink()">📋 Скопировать ссылку для ученицы</button>
+    </div>
+
+    <div id="rtc-stage" style="display:none; margin-top:18px;">
+      <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:14px;">
+        <div style="position:relative; background:#000; border-radius:var(--radius); overflow:hidden; border:1px solid var(--border); aspect-ratio:16/9;">
+          <video id="remote-video" autoplay playsinline style="width:100%; height:100%; object-fit:contain;"></video>
+          <span style="position:absolute; bottom:8px; left:10px; background:rgba(0,0,0,0.65); padding:3px 10px; border-radius:20px; font-size:12px;">Собеседник / Экран</span>
+        </div>
+        <div style="position:relative; background:#000; border-radius:var(--radius); overflow:hidden; border:1px solid var(--border); aspect-ratio:16/9;">
+          <video id="local-video" autoplay muted playsinline style="width:100%; height:100%; object-fit:cover;"></video>
+          <span style="position:absolute; bottom:8px; left:10px; background:rgba(0,0,0,0.65); padding:3px 10px; border-radius:20px; font-size:12px;">Вы</span>
+        </div>
+      </div>
+
+      <div style="display:flex; gap:10px; flex-wrap:wrap; justify-content:center; margin-top:14px;">
+        <button class="theme-btn" id="btn-mic" onclick="toggleMic()">🎤 Микрофон: ВКЛ</button>
+        <button class="theme-btn" id="btn-cam" onclick="toggleCam()">📷 Камера: ВКЛ</button>
+        <button class="theme-btn" onclick="shareScreen()">🖥 Показать экран (Коран)</button>
+        <button class="theme-btn" onclick="endRtcCall()" style="border-color:#e55; color:#e55;">✕ Завершить</button>
+      </div>
+
+      <div style="margin-top:14px; border-top:1px solid var(--border); padding-top:12px;">
+        <div id="rtc-chat-box" style="height:110px; overflow-y:auto; font-size:13px; color:var(--muted); margin-bottom:8px; padding:8px; background:var(--bg); border-radius:8px;"></div>
+        <div style="display:flex; gap:8px;">
+          <input type="text" id="rtc-chat-input" placeholder="Написать сообщение в чат урока..." onkeydown="if(event.key==='Enter')sendRtcChat()" style="flex:1;">
+          <button class="header-btn" onclick="sendRtcChat()">Отправить</button>
+        </div>
+      </div>
+    </div>
   </div>
 </section>
 
@@ -511,59 +541,146 @@ function toggleDayNight() {
   config.theme = config.theme === 'dark' ? 'light' : 'dark';
   renderSite();
 }
-let jitsiApi = null;
+let peer = null, localStream = null, currentCall = null, dataConn = null;
 
-function startClassRoom() {
-  const roomInput = document.getElementById('room-name').value.trim() || 'umm-imran-class-1';
-  const userName = document.getElementById('room-user').value.trim() || 'Ученица';
-  const safeRoom = 'UmmImranQuran_' + roomInput.replace(/[^a-zA-Z0-9_-]/g, '');
-  const box = document.getElementById('jitsi-box');
+function loadPeerJS(cb) {
+  if (window.Peer) return cb();
+  const s = document.createElement('script');
+  s.src = 'https://unpkg.com';
+  s.onload = cb;
+  document.head.appendChild(s);
+}
 
-  box.style.display = 'block';
-  box.innerHTML = '';
-  document.getElementById('btn-leave-room').style.display = 'inline-block';
+async function getUserMediaSafe() {
+  try {
+    return await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+  } catch (e) {
+    return await navigator.mediaDevices.getUserMedia({ video: false, audio: true });
+  }
+}
 
-  function initJitsi() {
-    jitsiApi = new JitsiMeetExternalAPI('meet.jit.net', {
-      roomName: safeRoom,
-      width: '100%',
-      height: 560,
-      parentNode: box,
-      lang: 'ru',
-      userInfo: { displayName: userName },
-      configOverwrite: {
-        startWithAudioMuted: false,
-        startWithVideoMuted: true,
-        prejoinPageEnabled: false
-      },
-      interfaceConfigOverwrite: {
-        SHOW_JITSI_WATERMARK: false,
-        TOOLBAR_BUTTONS: [
-          'microphone', 'camera', 'desktop', 'chat',
-          'raisehand', 'participants-pane', 'tileview', 'hangup'
-        ]
-      }
+function setupCallEvents(call) {
+  currentCall = call;
+  call.on('stream', function(remoteStream) {
+    document.getElementById('remote-video').srcObject = remoteStream;
+    document.getElementById('rtc-status').textContent = '(на связи)';
+  });
+}
+
+function setupDataEvents(conn) {
+  dataConn = conn;
+  conn.on('data', function(msg) { addChatMsg('Собеседник', msg); });
+}
+
+function addChatMsg(who, text) {
+  const box = document.getElementById('rtc-chat-box');
+  box.innerHTML += '<div style="margin-bottom:4px;"><b style="color:var(--accent-l)">' + who + ':</b> ' + text + '</div>';
+  box.scrollTop = box.scrollHeight;
+}
+
+function sendRtcChat() {
+  const inp = document.getElementById('rtc-chat-input');
+  const txt = inp.value.trim();
+  if (!txt) return;
+  addChatMsg('Вы', txt);
+  if (dataConn && dataConn.open) dataConn.send(txt);
+  inp.value = '';
+}
+
+async function createRtcRoom() {
+  localStream = await getUserMediaSafe();
+  document.getElementById('local-video').srcObject = localStream;
+  document.getElementById('rtc-stage').style.display = 'block';
+
+  loadPeerJS(function() {
+    const code = 'umm-' + Math.floor(1000 + Math.random() * 9000);
+    peer = new Peer(code);
+    peer.on('open', function(id) {
+      document.getElementById('rtc-room-code').textContent = id;
+      document.getElementById('rtc-invite').style.display = 'flex';
     });
-  }
+    peer.on('call', function(call) {
+      call.answer(localStream);
+      setupCallEvents(call);
+    });
+    peer.on('connection', function(conn) {
+      setupDataEvents(conn);
+    });
+  });
+}
 
-  if (window.JitsiMeetExternalAPI) {
-    initJitsi();
-  } else {
-    const s = document.createElement('script');
-    s.src = 'https://jit.net';
-    s.onload = initJitsi;
-    document.head.appendChild(s);
+async function joinRtcRoom() {
+  const targetId = document.getElementById('rtc-join-id').value.trim();
+  if (!targetId) return alert('Введите код урока от учителя');
+  localStream = await getUserMediaSafe();
+  document.getElementById('local-video').srcObject = localStream;
+  document.getElementById('rtc-stage').style.display = 'block';
+
+  loadPeerJS(function() {
+    peer = new Peer();
+    peer.on('open', function() {
+      const call = peer.call(targetId, localStream);
+      setupCallEvents(call);
+      const conn = peer.connect(targetId);
+      setupDataEvents(conn);
+    });
+  });
+}
+
+function copyRtcLink() {
+  const code = document.getElementById('rtc-room-code').textContent;
+  const link = window.location.origin + window.location.pathname + '?room=' + code + '#classroom';
+  navigator.clipboard.writeText(link);
+  alert('Ссылка скопирована! Отправьте её ученице в Telegram или WhatsApp.');
+}
+
+function toggleMic() {
+  if (!localStream) return;
+  const track = localStream.getAudioTracks()[0];
+  if (track) {
+    track.enabled = !track.enabled;
+    document.getElementById('btn-mic').textContent = track.enabled ? '🎤 Микрофон: ВКЛ' : '🔇 Микрофон: ВЫКЛ';
   }
 }
 
-function leaveClassRoom() {
-  if (jitsiApi) {
-    jitsiApi.dispose();
-    jitsiApi = null;
+function toggleCam() {
+  if (!localStream) return;
+  const track = localStream.getVideoTracks()[0];
+  if (track) {
+    track.enabled = !track.enabled;
+    document.getElementById('btn-cam').textContent = track.enabled ? '📷 Камера: ВКЛ' : '🚫 Камера: ВЫКЛ';
   }
-  document.getElementById('jitsi-box').style.display = 'none';
-  document.getElementById('btn-leave-room').style.display = 'none';
 }
+
+async function shareScreen() {
+  if (!currentCall) return alert('Сначала дождитесь подключения собеседника');
+  const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+  const screenTrack = screenStream.getVideoTracks()[0];
+  const sender = currentCall.peerConnection.getSenders().find(function(s) { return s.track && s.track.kind === 'video'; });
+  if (sender) sender.replaceTrack(screenTrack);
+  document.getElementById('local-video').srcObject = screenStream;
+  screenTrack.onended = function() {
+    const camTrack = localStream.getVideoTracks()[0];
+    if (sender && camTrack) sender.replaceTrack(camTrack);
+    document.getElementById('local-video').srcObject = localStream;
+  };
+}
+
+function endRtcCall() {
+  if (currentCall) currentCall.close();
+  if (peer) peer.destroy();
+  if (localStream) localStream.getTracks().forEach(function(t) { t.stop(); });
+  document.getElementById('rtc-stage').style.display = 'none';
+  document.getElementById('rtc-invite').style.display = 'none';
+}
+
+window.addEventListener('DOMContentLoaded', function() {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('room')) {
+    document.getElementById('rtc-join-id').value = params.get('room');
+  }
+});
+
 
 function sendToTelegram() {
   const name = document.getElementById('b-name').value.trim() || 'Ученица';
